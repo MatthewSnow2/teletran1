@@ -1,0 +1,74 @@
+# Pre-commit hooks configuration
+# Agent: tdd-workflows/tdd-orchestrator
+#
+# Installation: pre-commit install
+# Manual run: pre-commit run --all-files
+#
+# Autofix Enabled: Ruff, Black
+# Report Only: MyPy
+
+repos:
+  # Ruff - Fast Python linter (autofix enabled)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.13
+    hooks:
+      - id: ruff
+        name: ruff (autofix)
+        args: [--fix, --exit-non-zero-on-fix]
+        types_or: [python, pyi]
+
+  # Black - Python code formatter (autofix enabled)
+  - repo: https://github.com/psf/black
+    rev: 24.1.0
+    hooks:
+      - id: black
+        name: black (autofix)
+        language_version: python3.11
+
+  # MyPy - Type checking (report only, no autofix)
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        name: mypy (type check)
+        additional_dependencies:
+          - pydantic>=2.5.0
+          - types-redis>=4.6.0
+        args: [--strict, --ignore-missing-imports]
+        exclude: ^(tests/|infra/)
+
+  # Standard pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        name: trim trailing whitespace
+      - id: end-of-file-fixer
+        name: fix end of files
+      - id: check-yaml
+        name: check yaml syntax
+        args: [--safe]
+      - id: check-toml
+        name: check toml syntax
+      - id: check-added-large-files
+        name: check for large files
+        args: [--maxkb=1000]
+      - id: check-merge-conflict
+        name: check for merge conflicts
+      - id: detect-private-key
+        name: detect private keys
+
+  # Security check - detect hardcoded secrets
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        name: detect secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: package-lock.json
+
+# ============================================================================
+# AGENT SIGN-OFF
+# ============================================================================
+# ✅ tdd-workflows/tdd-orchestrator
+# ✅ full-stack-orchestration/security-auditor
