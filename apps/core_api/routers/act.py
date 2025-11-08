@@ -22,6 +22,10 @@ from pydantic import BaseModel, Field
 
 from apps.core_api.deps import get_current_actor, get_redis, get_trace_id
 from chad_obs.logging import get_logger
+from chad_agents.graphs.graph_langgraph import execute_agent_loop
+from chad_llm import LLMRouter
+from chad_tools.registry import ToolRegistry
+from chad_memory.stores import RedisStore
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -240,40 +244,60 @@ async def execute_action(
     # ========================================================================
     # STEP 5: LangGraph Execution
     # ========================================================================
-    # TODO: Import from chad_agents.graphs.graph_langgraph
-    # from chad_agents.graphs.graph_langgraph import execute_agent_loop
-    #
-    # # Sync execution (< 30s expected)
-    # result = await execute_agent_loop(
-    #     run_id=run_id,
-    #     goal=request_body.goal,
-    #     context=request_body.context,
-    #     autonomy_level=autonomy_level,
-    #     dry_run=request_body.dry_run,
-    #     max_steps=request_body.max_steps
-    # )
+    try:
+        # Initialize dependencies
+        llm_router = LLMRouter()  # Creates OpenAI + Anthropic clients from env
 
-    # ========================================================================
-    # STUB RESPONSE
-    # ========================================================================
-    # Return mock response until LangGraph is implemented
-    return ActResponse(
-        run_id=run_id,
-        trace_id=trace_id,
-        status="pending",
-        message="Request queued for processing (STUB: LangGraph not implemented)",
-        autonomy_level=autonomy_level,
-        plan={
-            "steps": [
-                {
-                    "tool": "adapters_github.search_issues",
-                    "input": {"repo": request_body.context.get("github_repo", "unknown")},
-                },
-                {"tool": "local.summarize_text", "input": {"text": "mock"}},
-            ]
-        },
-        poll_url=f"/runs/{run_id}",
-    )
+        # Get tool registry from app state (initialized at startup with Notion + n8n tools)
+        tool_registry = request.app.state.tool_registry
+
+        # Add actor to context
+        execution_context = {**request_body.context, "actor": actor}
+
+        # Execute agent workflow
+        result = await execute_agent_loop(
+            run_id=run_id,
+            goal=request_body.goal,
+            context=execution_context,
+            autonomy_level=autonomy_level,
+            dry_run=request_body.dry_run,
+            max_steps=request_body.max_steps,
+            llm_router=llm_router,
+            tool_registry=tool_registry,
+        )
+
+        # Return completed execution
+        return ActResponse(
+            run_id=run_id,
+            trace_id=trace_id,
+            status=result.get("status", "completed"),
+            message=result.get("message"),
+            autonomy_level=autonomy_level,
+            plan={"steps": result.get("plan", [])},
+            results=result.get("executed_steps", []),
+            artifacts=result.get("artifacts", []),
+            duration_ms=result.get("duration_ms"),
+        )
+
+    except Exception as e:
+        logger.error(
+            "agent_execution_failed",
+            run_id=run_id,
+            error=str(e),
+            trace_id=trace_id,
+        )
+
+        # Return error response
+        return ActResponse(
+            run_id=run_id,
+            trace_id=trace_id,
+            status="failed",
+            message=f"Execution failed: {str(e)}",
+            autonomy_level=autonomy_level,
+            plan=None,
+            results=None,
+            artifacts=None,
+        )
 
 
 # ============================================================================

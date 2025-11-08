@@ -35,6 +35,13 @@ dependencies = [
     # Supabase Storage
     "supabase>=2.3.0",
 
+    # Notion SDK
+    "notion-client>=2.2.1",
+
+    # LLM Providers
+    "openai>=1.10.0",
+    "anthropic>=0.18.0",
+
     # Observability (Minimal Instrumentation)
     "opentelemetry-api>=1.22.0",
     "opentelemetry-sdk>=1.22.0",
@@ -94,6 +101,7 @@ addopts = [
     "--cov=chad_agents",
     "--cov=chad_tools",
     "--cov=chad_memory",
+    "--cov=chad_llm",
     "--cov=chad_obs",
     "--cov=chad_config",
     "--cov-report=term-missing",
@@ -184,6 +192,8 @@ module = [
     "langchain_core.*",
     "prometheus_client.*",
     "structlog.*",
+    "openai.*",
+    "anthropic.*",
 ]
 ignore_missing_imports = true
 
@@ -191,7 +201,7 @@ ignore_missing_imports = true
 # COVERAGE CONFIGURATION
 # ============================================================================
 [tool.coverage.run]
-source = ["apps", "chad_agents", "chad_tools", "chad_memory", "chad_obs", "chad_config"]
+source = ["apps", "chad_agents", "chad_tools", "chad_memory", "chad_llm", "chad_obs", "chad_config"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

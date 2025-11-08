@@ -44,6 +44,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Application lifespan context manager.
 
     Handles:
+    - Tool registry initialization
+    - Notion and n8n tool registration
     - Database connection pool initialization
     - Redis connection initialization
     - Graceful shutdown
@@ -52,11 +54,60 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     TODO: Add health check warmup
     TODO: Implement graceful shutdown with timeout
     """
+    from chad_tools.registry import ToolRegistry
+    from chad_tools.adapters.notion import NotionClientWrapper
+    from chad_tools.adapters.notion.tools import (
+        NotionSearchTool,
+        NotionReadPageTool,
+        NotionCreatePageTool,
+        NotionQueryDatabaseTool,
+    )
+    from chad_tools.adapters.n8n import N8nWorkflowRegistry
+    import os
+
     # Startup
     print("🚀 Chad-Core API starting up...")
     print(f"📊 Environment: {settings.ENVIRONMENT}")
     print(f"🗄️  Database: {settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else 'local'}")
     print(f"💾 Redis: {settings.REDIS_URL}")
+
+    # Initialize tool registry
+    tool_registry = ToolRegistry()
+    app.state.tool_registry = tool_registry
+
+    # 1. Register Notion tools
+    print("\n📚 Registering Notion tools...")
+    notion_api_key = os.getenv("NOTION_API_KEY")
+    notion_client = NotionClientWrapper(api_key=notion_api_key)
+    app.state.notion_client = notion_client
+
+    tool_registry.register(NotionSearchTool(api_key=notion_api_key))
+    tool_registry.register(NotionReadPageTool(api_key=notion_api_key))
+    tool_registry.register(NotionCreatePageTool(api_key=notion_api_key))
+    tool_registry.register(NotionQueryDatabaseTool(api_key=notion_api_key))
+    print(f"  ✅ Registered 4 Notion tools")
+
+    # 2. Discover and register n8n workflows
+    print("\n🔄 Discovering n8n workflows from Notion...")
+    n8n_api_key = os.getenv("CHAD_ROUTER_TOKEN")  # Auth token for n8n webhooks
+
+    n8n_registry = N8nWorkflowRegistry(
+        notion_client=notion_client,
+        tool_registry=tool_registry,
+        api_key=n8n_api_key,
+    )
+    app.state.n8n_registry = n8n_registry
+
+    try:
+        workflow_count = await n8n_registry.discover_and_register()
+        print(f"  ✅ Registered {workflow_count} n8n workflow(s)")
+    except Exception as e:
+        print(f"  ⚠️  Failed to discover n8n workflows: {e}")
+        print(f"     Chad will continue without n8n workflows")
+        print(f"     (This is expected if 'n8n Workflows' folder doesn't exist in Notion yet)")
+
+    print(f"\n🎯 Chad-Core ready! Total tools: {len(tool_registry._tools)}")
+    print(f"   Available tools: {', '.join(tool_registry._tools.keys())}")
 
     # TODO: Initialize database connection pool
     # app.state.db = await init_db_pool(settings.DATABASE_URL)
@@ -71,7 +122,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown
-    print("🛑 Chad-Core API shutting down...")
+    print("\n🛑 Chad-Core API shutting down...")
+
+    # Close Notion client
+    if hasattr(app.state, "notion_client"):
+        await app.state.notion_client.close()
 
     # TODO: Close database connections
     # await app.state.db.close()
