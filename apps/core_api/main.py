@@ -122,15 +122,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     print(f"\n🎯 Chad-Core ready! Total tools: {len(tool_registry._tools)}")
     print(f"   Available tools: {', '.join(tool_registry._tools.keys())}")
 
-    # TODO: Initialize database connection pool
-    # app.state.db = await init_db_pool(settings.DATABASE_URL)
+    # Initialize database connection pool
+    print("\n🗄️  Initializing database connection pool...")
+    from chad_memory.database import get_engine, check_db_connection
+
+    try:
+        engine = get_engine(settings.DATABASE_URL)
+        app.state.db_engine = engine
+
+        # Health check
+        is_healthy = await check_db_connection()
+        if is_healthy:
+            print("  ✅ Database connection established")
+        else:
+            print("  ⚠️  Database health check failed")
+    except Exception as e:
+        print(f"  ⚠️  Database initialization failed: {e}")
+        print(f"     Chad will continue without database persistence")
 
     # TODO: Initialize Redis connection
     # app.state.redis = await init_redis_pool(settings.REDIS_URL)
-
-    # TODO: Run health checks
-    # await check_db_connection(app.state.db)
-    # await check_redis_connection(app.state.redis)
 
     yield
 
@@ -144,8 +155,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Close Redis connection
     await close_redis()
 
-    # TODO: Close database connections
-    # await app.state.db.close()
+    # Close database connections
+    if hasattr(app.state, "db_engine"):
+        print("  🗄️  Closing database connections...")
+        from chad_memory.database import close_db_connections
+        await close_db_connections()
+        print("  ✅ Database connections closed")
 
     print("✅ Graceful shutdown complete")
 
