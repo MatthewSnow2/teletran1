@@ -67,6 +67,28 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 # ============================================================================
 
 
+_redis_client: Redis | None = None
+
+
+async def init_redis() -> None:
+    """Initialize Redis connection pool."""
+    global _redis_client
+    _redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+
+
+async def close_redis() -> None:
+    """Close Redis connection."""
+    global _redis_client
+    if _redis_client:
+        await _redis_client.close()
+        _redis_client = None
+
+
+def get_redis_client() -> Redis | None:
+    """Get Redis client (for use in middleware and auth)."""
+    return _redis_client
+
+
 async def get_redis() -> AsyncGenerator[Redis, None]:
     """
     Dependency: Redis connection.
@@ -74,26 +96,17 @@ async def get_redis() -> AsyncGenerator[Redis, None]:
     Yields:
         Redis: Async Redis client
 
-    TODO: Implement Redis connection pool
-    TODO: Add connection health check
-    TODO: Add automatic reconnection logic
-
     Example Usage:
         @app.get("/cache/{key}")
         async def get_cached(key: str, redis: Redis = Depends(get_redis)):
             value = await redis.get(key)
             return {"key": key, "value": value}
     """
-    # TODO: Create Redis connection from pool
-    # redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
-    # try:
-    #     yield redis_client
-    # finally:
-    #     await redis_client.close()
+    global _redis_client
+    if not _redis_client:
+        _redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
-    # Placeholder
-    raise NotImplementedError("Redis dependency not yet implemented")
-    yield  # type: ignore
+    yield _redis_client
 
 
 # ============================================================================
@@ -153,68 +166,118 @@ async def get_queue() -> AsyncGenerator[Redis, None]:
 # ============================================================================
 
 
-async def get_current_actor(
+async def get_current_user(
     authorization: str = Header(..., description="Bearer JWT token"),
-    x_hmac_signature: str = Header(..., description="HMAC signature of request body"),
-) -> str:
+) -> "User":
     """
-    Dependency: Extract and validate current actor from auth headers.
+    Dependency: Extract and validate current user from JWT.
 
     Args:
         authorization: Bearer token (JWT)
-        x_hmac_signature: HMAC-SHA256 signature of request body
 
     Returns:
-        str: Actor identifier (from JWT "sub" claim)
+        User: User model with user_id and scopes
 
     Raises:
         HTTPException: 401 if authentication fails
 
-    TODO: Implement JWT validation (python-jose)
-    TODO: Implement HMAC validation (hashlib.hmac)
-    TODO: Add token blacklist check (Redis)
-    TODO: Add rate limit check before processing
+    Example Usage:
+        @app.post("/protected")
+        async def protected_route(user: User = Depends(get_current_user)):
+            return {"user_id": user.user_id, "scopes": user.scopes}
+    """
+    from apps.core_api.auth import validate_jwt, User
+
+    return await validate_jwt(authorization)
+
+
+async def get_current_service_account(
+    x_hmac_signature: str = Header(..., description="HMAC signature of request body"),
+    x_request_timestamp: str = Header(..., description="Unix timestamp of request"),
+    request: "Request" = None,
+) -> "ServiceAccount":
+    """
+    Dependency: Validate HMAC signature and return service account.
+
+    Args:
+        x_hmac_signature: HMAC-SHA256 signature
+        x_request_timestamp: Request timestamp
+        request: FastAPI Request object
+
+    Returns:
+        ServiceAccount: Service account model
+
+    Raises:
+        HTTPException: 401 if HMAC validation fails
 
     Example Usage:
-        @app.post("/act")
-        async def execute_action(actor: str = Depends(get_current_actor)):
-            return {"actor": actor, "status": "authenticated"}
+        @app.post("/webhook")
+        async def webhook(
+            service: ServiceAccount = Depends(get_current_service_account),
+            data: dict = Body(...)
+        ):
+            return {"service": service.service_id}
     """
-    # TODO: Validate JWT signature
-    # from apps.core_api.auth import validate_jwt
-    # payload = await validate_jwt(authorization)
-    # actor = payload.get("sub")
+    from apps.core_api.auth import validate_hmac, ServiceAccount
+    from fastapi import Request
 
-    # TODO: Validate HMAC signature
-    # from apps.core_api.auth import validate_hmac
-    # await validate_hmac(request_body, x_hmac_signature)
+    # Get request body
+    body = await request.body()
 
-    # Placeholder: return test actor
-    # Remove this in production!
-    if authorization == "Bearer test_token":
-        return "test_actor"
-
-    raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    return await validate_hmac(body, x_hmac_signature, x_request_timestamp)
 
 
-async def get_current_actor_optional(
+def require_scopes(required_scopes: list[str]):
+    """
+    Dependency factory: Require specific scopes.
+
+    Args:
+        required_scopes: List of required scopes
+
+    Returns:
+        Callable: Dependency function
+
+    Raises:
+        HTTPException: 403 if insufficient permissions
+
+    Example Usage:
+        @app.post("/admin")
+        async def admin_route(
+            user: User = Depends(get_current_user),
+            _: None = Depends(require_scopes(["admin.*"]))
+        ):
+            return {"status": "authorized"}
+    """
+    from apps.core_api.auth import check_scopes, User
+
+    async def scope_checker(user: User = Depends(get_current_user)) -> None:
+        if not check_scopes(required_scopes, user.scopes):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permissions. Required scopes: {required_scopes}",
+            )
+
+    return scope_checker
+
+
+async def get_current_user_optional(
     authorization: str | None = Header(None, description="Optional Bearer JWT token"),
-) -> str | None:
+) -> "User | None":
     """
-    Dependency: Optional actor authentication.
+    Dependency: Optional user authentication.
 
     Returns None if no auth provided, validates if present.
 
     Returns:
-        str | None: Actor identifier or None
+        User | None: User model or None
     """
     if authorization is None:
         return None
 
     try:
-        # Use get_current_actor logic without requiring header
-        # TODO: Implement optional validation
-        return None
+        from apps.core_api.auth import validate_jwt
+
+        return await validate_jwt(authorization)
     except HTTPException:
         return None
 

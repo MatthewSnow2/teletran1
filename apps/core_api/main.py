@@ -26,7 +26,7 @@ from chad_obs.logging import setup_logging
 from chad_obs.tracing import setup_tracing
 
 # Import routers
-from apps.core_api.routers import act, health, metrics, runs
+from apps.core_api.routers import act, auth, health, metrics, runs
 
 # Initialize settings
 settings = Settings()
@@ -63,6 +63,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         NotionQueryDatabaseTool,
     )
     from chad_tools.adapters.n8n import N8nWorkflowRegistry
+    from apps.core_api.deps import init_redis, close_redis
+    from apps.core_api.auth import set_redis_client, get_redis_client
     import os
 
     # Startup
@@ -70,6 +72,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     print(f"📊 Environment: {settings.ENVIRONMENT}")
     print(f"🗄️  Database: {settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else 'local'}")
     print(f"💾 Redis: {settings.REDIS_URL}")
+
+    # Initialize Redis connection
+    try:
+        await init_redis()
+        redis = get_redis_client()
+        if redis:
+            set_redis_client(redis)
+            print("✅ Redis connected")
+    except Exception as e:
+        print(f"⚠️  Redis connection failed: {e}")
+        print("   Continuing without Redis (rate limiting and token blacklisting disabled)")
 
     # Initialize tool registry
     tool_registry = ToolRegistry()
@@ -128,11 +141,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if hasattr(app.state, "notion_client"):
         await app.state.notion_client.close()
 
+    # Close Redis connection
+    await close_redis()
+
     # TODO: Close database connections
     # await app.state.db.close()
-
-    # TODO: Close Redis connections
-    # await app.state.redis.close()
 
     print("✅ Graceful shutdown complete")
 
@@ -162,13 +175,20 @@ app.add_middleware(
     expose_headers=["X-Request-ID", "X-Trace-ID"],
 )
 
-# TODO: Add rate limiting middleware
-# from apps.core_api.middleware import RateLimitMiddleware
-# app.add_middleware(RateLimitMiddleware)
+# Request ID middleware (must be added before other middleware)
+from apps.core_api.middleware import RequestIDMiddleware
 
-# TODO: Add request ID middleware
-# from apps.core_api.middleware import RequestIDMiddleware
-# app.add_middleware(RequestIDMiddleware)
+app.add_middleware(RequestIDMiddleware)
+
+# Rate limiting middleware
+from apps.core_api.middleware import RateLimitMiddleware
+
+app.add_middleware(RateLimitMiddleware)
+
+# Request logging middleware (optional, for debugging)
+from apps.core_api.middleware import RequestLoggingMiddleware
+
+app.add_middleware(RequestLoggingMiddleware)
 
 # OpenTelemetry FastAPI instrumentation is auto-applied in chad_obs/tracing.py
 
@@ -204,6 +224,9 @@ async def global_exception_handler(request, exc):
 # ============================================================================
 # ROUTERS
 # ============================================================================
+
+# Authentication endpoints
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
 
 # Core execution endpoint
 app.include_router(act.router, prefix="", tags=["execution"])

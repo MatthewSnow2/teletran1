@@ -12,7 +12,8 @@ Agent: api-scaffolding/fastapi-pro
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from apps.core_api.deps import get_current_actor
+from apps.core_api.deps import get_current_user
+from apps.core_api.auth import User
 
 router = APIRouter()
 
@@ -42,7 +43,7 @@ class RunDetailResponse(BaseModel):
 
 @router.get("", response_model=RunListResponse)
 async def list_runs(
-    actor: str = Depends(get_current_actor),
+    user: User = Depends(get_current_user),
     status: str | None = None,
     limit: int = 50,
     offset: int = 0,
@@ -59,7 +60,7 @@ async def list_runs(
 
 
 @router.get("/{run_id}", response_model=RunDetailResponse)
-async def get_run(run_id: str, actor: str = Depends(get_current_actor)):
+async def get_run(run_id: str, user: User = Depends(get_current_user)):
     """
     Get run details.
 
@@ -71,7 +72,7 @@ async def get_run(run_id: str, actor: str = Depends(get_current_actor)):
 
 
 @router.get("/{run_id}/steps")
-async def get_run_steps(run_id: str, actor: str = Depends(get_current_actor)):
+async def get_run_steps(run_id: str, user: User = Depends(get_current_user)):
     """
     Get detailed step timeline.
 

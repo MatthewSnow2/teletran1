@@ -20,7 +20,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from apps.core_api.deps import get_current_actor, get_redis, get_trace_id
+from apps.core_api.deps import get_current_user, get_redis, get_trace_id
+from apps.core_api.auth import User
 from chad_obs.logging import get_logger
 from chad_agents.graphs.graph_langgraph import execute_agent_loop
 from chad_llm import LLMRouter
@@ -123,7 +124,7 @@ class ActResponse(BaseModel):
 async def execute_action(
     request_body: ActRequest,
     request: Request,
-    actor: str = Depends(get_current_actor),
+    user: User = Depends(get_current_user),
     trace_id: str = Depends(get_trace_id),
 ) -> ActResponse:
     """
@@ -171,9 +172,14 @@ async def execute_action(
     TODO: Implement LangGraph execution
     TODO: Implement async queuing for long-running tasks
     """
+    # Extract actor from request body or user
+    actor = request_body.actor or user.user_id
+
     logger.info(
         "act_request_received",
         actor=actor,
+        user_id=user.user_id,
+        scopes=user.scopes,
         goal=request_body.goal,
         trace_id=trace_id,
         idempotency_key=request_body.idempotency_key,
