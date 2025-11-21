@@ -24,7 +24,13 @@ if config.config_file_name is not None:
 
 # Load database URL from settings
 settings = Settings()
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+
+# Convert standard postgresql:// URL to postgresql+asyncpg:// for async support
+database_url = settings.DATABASE_URL
+if database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+config.set_main_option("sqlalchemy.url", database_url)
 
 # Add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata
