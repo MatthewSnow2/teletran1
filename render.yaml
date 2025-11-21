@@ -16,15 +16,13 @@ services:
     healthCheckPath: /healthz
 
     envVars:
-      # Database (from Render Postgres)
+      # Database (link manually after creating database)
       - key: DATABASE_URL
-        fromDatabase:
-          name: chad-core-db
-          property: connectionString
+        sync: false  # Add manually from database connection string
 
-      # Redis (Upstash - manual entry)
+      # Redis (Upstash)
       - key: REDIS_URL
-        sync: false  # Set in Render dashboard
+        sync: false
 
       # LLM APIs (manual entry)
       - key: OPENAI_API_KEY
