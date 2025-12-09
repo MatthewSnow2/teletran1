@@ -8,14 +8,14 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from chad_agents.graphs.graph_langgraph import execute_agent_loop
-from chad_llm import LLMRouter
+from chad_llm import AnthropicClient
 from chad_tools.registry import ToolRegistry
 
 
 @pytest.fixture
-def mock_llm_router():
-    """Mock LLM router for tests."""
-    return MagicMock(spec=LLMRouter)
+def mock_claude():
+    """Mock Claude client for tests."""
+    return MagicMock(spec=AnthropicClient)
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def mock_tool_registry():
 
 
 @pytest.mark.asyncio
-async def test_agent_loop_happy_path(mock_llm_router, mock_tool_registry):
+async def test_agent_loop_happy_path(mock_claude, mock_tool_registry):
     """Test agent loop executes successfully (stub)."""
     result = await execute_agent_loop(
         run_id="test",
@@ -34,7 +34,7 @@ async def test_agent_loop_happy_path(mock_llm_router, mock_tool_registry):
         autonomy_level="L2_ExecuteNotify",
         dry_run=False,
         max_steps=10,
-        llm_router=mock_llm_router,
+        claude=mock_claude,
         tool_registry=mock_tool_registry,
     )
 
@@ -44,7 +44,7 @@ async def test_agent_loop_happy_path(mock_llm_router, mock_tool_registry):
 
 
 @pytest.mark.asyncio
-async def test_agent_loop_with_context(mock_llm_router, mock_tool_registry):
+async def test_agent_loop_with_context(mock_claude, mock_tool_registry):
     """Test agent loop with additional context."""
     result = await execute_agent_loop(
         run_id="test-context",
@@ -53,7 +53,7 @@ async def test_agent_loop_with_context(mock_llm_router, mock_tool_registry):
         autonomy_level="L2_ExecuteNotify",
         dry_run=False,
         max_steps=10,
-        llm_router=mock_llm_router,
+        claude=mock_claude,
         tool_registry=mock_tool_registry,
     )
 
@@ -63,7 +63,7 @@ async def test_agent_loop_with_context(mock_llm_router, mock_tool_registry):
 
 
 @pytest.mark.asyncio
-async def test_agent_loop_dry_run(mock_llm_router, mock_tool_registry):
+async def test_agent_loop_dry_run(mock_claude, mock_tool_registry):
     """Test agent loop in dry run mode."""
     result = await execute_agent_loop(
         run_id="test-dry-run",
@@ -72,7 +72,7 @@ async def test_agent_loop_dry_run(mock_llm_router, mock_tool_registry):
         autonomy_level="L1_Draft",
         dry_run=True,
         max_steps=5,
-        llm_router=mock_llm_router,
+        claude=mock_claude,
         tool_registry=mock_tool_registry,
     )
 
@@ -82,7 +82,7 @@ async def test_agent_loop_dry_run(mock_llm_router, mock_tool_registry):
 
 
 @pytest.mark.asyncio
-async def test_agent_loop_different_autonomy_levels(mock_llm_router, mock_tool_registry):
+async def test_agent_loop_different_autonomy_levels(mock_claude, mock_tool_registry):
     """Test agent loop with different autonomy levels."""
     autonomy_levels = ["L0_Ask", "L1_Draft", "L2_ExecuteNotify", "L3_ExecuteSilent"]
 
@@ -94,7 +94,7 @@ async def test_agent_loop_different_autonomy_levels(mock_llm_router, mock_tool_r
             autonomy_level=level,
             dry_run=False,
             max_steps=10,
-            llm_router=mock_llm_router,
+            claude=mock_claude,
             tool_registry=mock_tool_registry,
         )
 

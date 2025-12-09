@@ -45,14 +45,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     Handles:
     - Tool registry initialization
-    - Notion and n8n tool registration
+    - Notion tool registration
     - Database connection pool initialization
     - Redis connection initialization
     - Graceful shutdown
 
-    TODO: Implement connection pooling
-    TODO: Add health check warmup
-    TODO: Implement graceful shutdown with timeout
+    Note: External tools (GitHub, Google, Slack) will be available via MCP
+    once MCP deployment is configured.
     """
     from chad_tools.registry import ToolRegistry
     from chad_tools.adapters.notion import NotionClientWrapper
@@ -62,7 +61,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         NotionCreatePageTool,
         NotionQueryDatabaseTool,
     )
-    from chad_tools.adapters.n8n import N8nWorkflowRegistry
     from apps.core_api.deps import init_redis, close_redis
     from apps.core_api.auth import set_redis_client, get_redis_client
     import os
@@ -88,7 +86,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     tool_registry = ToolRegistry()
     app.state.tool_registry = tool_registry
 
-    # 1. Register Notion tools
+    # Register Notion tools (direct Python adapter)
     print("\n📚 Registering Notion tools...")
     notion_api_key = os.getenv("NOTION_API_KEY")
     notion_client = NotionClientWrapper(api_key=notion_api_key)
@@ -100,24 +98,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     tool_registry.register(NotionQueryDatabaseTool(api_key=notion_api_key))
     print(f"  ✅ Registered 4 Notion tools")
 
-    # 2. Discover and register n8n workflows
-    print("\n🔄 Discovering n8n workflows from Notion...")
-    n8n_api_key = os.getenv("CHAD_ROUTER_TOKEN")  # Auth token for n8n webhooks
-
-    n8n_registry = N8nWorkflowRegistry(
-        notion_client=notion_client,
-        tool_registry=tool_registry,
-        api_key=n8n_api_key,
-    )
-    app.state.n8n_registry = n8n_registry
-
-    try:
-        workflow_count = await n8n_registry.discover_and_register()
-        print(f"  ✅ Registered {workflow_count} n8n workflow(s)")
-    except Exception as e:
-        print(f"  ⚠️  Failed to discover n8n workflows: {e}")
-        print(f"     Chad will continue without n8n workflows")
-        print(f"     (This is expected if 'n8n Workflows' folder doesn't exist in Notion yet)")
+    # Note: Other tools (GitHub, Google, Slack) are available via MCP
+    # Configure MCP_ENABLED=true and MCP server URLs when ready
 
     print(f"\n🎯 Chad-Core ready! Total tools: {len(tool_registry._tools)}")
     print(f"   Available tools: {', '.join(tool_registry._tools.keys())}")

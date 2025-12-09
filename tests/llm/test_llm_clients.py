@@ -1,4 +1,4 @@
-"""Tests for LLM client implementations."""
+"""Tests for LLM client implementations (Claude-only)."""
 
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -10,20 +10,12 @@ from chad_llm.client import (
     LLMRateLimitError,
     LLMValidationError,
 )
-from chad_llm.openai_client import OpenAIClient
 from chad_llm.anthropic_client import AnthropicClient
-from chad_llm.router import LLMRouter, TaskType
 
 
 # ============================================================================
 # FIXTURES
 # ============================================================================
-
-
-@pytest.fixture
-def mock_openai_api_key(monkeypatch):
-    """Mock OpenAI API key in environment."""
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key-12345")
 
 
 @pytest.fixture
@@ -33,127 +25,9 @@ def mock_anthropic_api_key(monkeypatch):
 
 
 @pytest.fixture
-def openai_client(mock_openai_api_key):
-    """Create OpenAI client with mocked API key."""
-    return OpenAIClient(model="gpt-5-2025-08-07")
-
-
-@pytest.fixture
 def anthropic_client(mock_anthropic_api_key):
     """Create Anthropic client with mocked API key."""
     return AnthropicClient(model="claude-sonnet-4-5-20250929")
-
-
-@pytest.fixture
-def llm_router(openai_client, anthropic_client):
-    """Create LLM router with both clients."""
-    return LLMRouter(
-        openai_client=openai_client,
-        anthropic_client=anthropic_client,
-    )
-
-
-# ============================================================================
-# OPENAI CLIENT TESTS
-# ============================================================================
-
-
-@pytest.mark.asyncio
-async def test_openai_client_initialization(mock_openai_api_key):
-    """Test OpenAI client initializes correctly."""
-    client = OpenAIClient(model="gpt-5-2025-08-07")
-
-    assert client.model_name == "gpt-5-2025-08-07"
-    assert client.max_context_tokens == 200000
-    assert client.api_key == "sk-test-key-12345"
-
-
-def test_openai_client_missing_api_key(monkeypatch):
-    """Test OpenAI client raises error when API key missing."""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    with pytest.raises(LLMAuthError, match="OPENAI_API_KEY not found"):
-        OpenAIClient()
-
-
-@pytest.mark.asyncio
-async def test_openai_generate_success(openai_client):
-    """Test successful text generation."""
-    mock_response = MagicMock()
-    mock_response.choices = [
-        MagicMock(message=MagicMock(content="Generated response text"))
-    ]
-
-    with patch.object(
-        openai_client.client.chat.completions,
-        "create",
-        new_callable=AsyncMock,
-    ) as mock_create:
-        mock_create.return_value = mock_response
-
-        result = await openai_client.generate(
-            prompt="Test prompt",
-            system_prompt="Test system",
-            temperature=0.5,
-        )
-
-        assert result == "Generated response text"
-        mock_create.assert_called_once()
-
-        # Verify call parameters
-        call_kwargs = mock_create.call_args.kwargs
-        assert call_kwargs["model"] == "gpt-5-2025-08-07"
-        assert call_kwargs["temperature"] == 0.5
-        assert len(call_kwargs["messages"]) == 2
-        assert call_kwargs["messages"][0]["role"] == "system"
-        assert call_kwargs["messages"][1]["role"] == "user"
-
-
-@pytest.mark.asyncio
-async def test_openai_generate_json_success(openai_client):
-    """Test successful JSON generation with function calling."""
-    mock_response = MagicMock()
-    mock_response.choices = [
-        MagicMock(
-            message=MagicMock(
-                function_call=MagicMock(arguments='{"key": "value", "count": 42}')
-            )
-        )
-    ]
-
-    with patch.object(
-        openai_client.client.chat.completions,
-        "create",
-        new_callable=AsyncMock,
-    ) as mock_create:
-        mock_create.return_value = mock_response
-
-        schema = {
-            "type": "object",
-            "properties": {
-                "key": {"type": "string"},
-                "count": {"type": "integer"},
-            },
-        }
-
-        result = await openai_client.generate_json(
-            prompt="Generate data",
-            schema=schema,
-        )
-
-        assert result == {"key": "value", "count": 42}
-        mock_create.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_openai_count_tokens(openai_client):
-    """Test token counting approximation."""
-    text = "This is a test prompt with about twenty tokens in it."
-    count = await openai_client.count_tokens(text)
-
-    # Should be approximately len(text) / 4
-    expected = len(text) // 4
-    assert count == expected
 
 
 # ============================================================================
@@ -288,129 +162,17 @@ async def test_anthropic_count_tokens(anthropic_client):
 
 
 # ============================================================================
-# LLM ROUTER TESTS
-# ============================================================================
-
-
-def test_router_initialization(openai_client, anthropic_client):
-    """Test router initializes with clients."""
-    router = LLMRouter(
-        openai_client=openai_client,
-        anthropic_client=anthropic_client,
-    )
-
-    assert router.chatgpt == openai_client
-    assert router.claude == anthropic_client
-
-
-def test_router_route_by_task_type(llm_router):
-    """Test routing based on explicit task type."""
-    # ChatGPT tasks
-    assert llm_router.route(TaskType.USER_RESPONSE) == llm_router.chatgpt
-    assert llm_router.route(TaskType.SUMMARIZATION) == llm_router.chatgpt
-    assert llm_router.route(TaskType.FORMATTING) == llm_router.chatgpt
-
-    # Claude tasks
-    assert llm_router.route(TaskType.PLANNING) == llm_router.claude
-    assert llm_router.route(TaskType.TECHNICAL_ANALYSIS) == llm_router.claude
-    assert llm_router.route(TaskType.REFLECTION) == llm_router.claude
-
-
-def test_router_route_from_prompt(llm_router):
-    """Test routing based on prompt analysis."""
-    # Claude prompts (technical/planning keywords)
-    claude_prompts = [
-        "Create a step-by-step plan for implementing this feature",
-        "Analyze this code and evaluate its performance",
-        "Reflect on the execution and decide next steps",
-        "Provide technical reasoning for this architecture",
-    ]
-
-    for prompt in claude_prompts:
-        client = llm_router.route_from_prompt(prompt)
-        assert client == llm_router.claude
-
-    # ChatGPT prompts (conversational/summarization keywords)
-    chatgpt_prompts = [
-        "Summarize this content for the user",
-        "Explain this concept in a friendly way",
-        "Format this data in a readable manner",
-        "Describe the results to the user",
-    ]
-
-    for prompt in chatgpt_prompts:
-        client = llm_router.route_from_prompt(prompt)
-        assert client == llm_router.chatgpt
-
-
-@pytest.mark.asyncio
-async def test_router_generate_with_explicit_task(llm_router):
-    """Test generate with explicit task type routing."""
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock(message=MagicMock(content="ChatGPT response"))]
-
-    with patch.object(
-        llm_router.chatgpt.client.chat.completions,
-        "create",
-        new_callable=AsyncMock,
-    ) as mock_create:
-        mock_create.return_value = mock_response
-
-        result, model = await llm_router.generate(
-            prompt="Test prompt",
-            task_type=TaskType.USER_RESPONSE,
-        )
-
-        assert result == "ChatGPT response"
-        assert model == "gpt-5-2025-08-07"
-
-
-@pytest.mark.asyncio
-async def test_router_generate_with_prompt_analysis(llm_router):
-    """Test generate with automatic routing from prompt."""
-    mock_block = MagicMock()
-    mock_block.text = "Claude planning response"
-
-    mock_response = MagicMock()
-    mock_response.content = [mock_block]
-
-    with patch.object(
-        llm_router.claude.client.messages,
-        "create",
-        new_callable=AsyncMock,
-    ) as mock_create:
-        mock_create.return_value = mock_response
-
-        result, model = await llm_router.generate(
-            prompt="Create a detailed plan for this workflow",
-            # No explicit task_type - should route to Claude based on keywords
-        )
-
-        assert result == "Claude planning response"
-        assert model == "claude-sonnet-4-5-20250929"
-
-
-def test_router_get_client(llm_router):
-    """Test getting client by task type."""
-    chatgpt = llm_router.get_client(TaskType.SUMMARIZATION)
-    assert chatgpt == llm_router.chatgpt
-
-    claude = llm_router.get_client(TaskType.PLANNING)
-    assert claude == llm_router.claude
-
-
-# ============================================================================
 # ERROR HANDLING TESTS
 # ============================================================================
 
 
 @pytest.mark.asyncio
-async def test_openai_authentication_error(openai_client):
-    """Test OpenAI authentication error handling."""
-    from openai import AuthenticationError
+async def test_anthropic_authentication_error(anthropic_client):
+    """Test Anthropic authentication error handling."""
+    from anthropic import AuthenticationError
 
     with patch.object(
-        openai_client.client.chat.completions,
+        anthropic_client.client.messages,
         "create",
         new_callable=AsyncMock,
     ) as mock_create:
@@ -420,8 +182,8 @@ async def test_openai_authentication_error(openai_client):
             body={"error": {"message": "Invalid API key"}},
         )
 
-        with pytest.raises(LLMAuthError, match="OpenAI authentication failed"):
-            await openai_client.generate(prompt="Test")
+        with pytest.raises(LLMAuthError, match="Anthropic authentication failed"):
+            await anthropic_client.generate(prompt="Test")
 
 
 @pytest.mark.asyncio
@@ -442,26 +204,6 @@ async def test_anthropic_rate_limit_error(anthropic_client):
 
         with pytest.raises(LLMRateLimitError, match="Anthropic rate limit exceeded"):
             await anthropic_client.generate(prompt="Test")
-
-
-@pytest.mark.asyncio
-async def test_openai_json_validation_error(openai_client):
-    """Test JSON validation error when function call missing."""
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock(message=MagicMock(function_call=None))]
-
-    with patch.object(
-        openai_client.client.chat.completions,
-        "create",
-        new_callable=AsyncMock,
-    ) as mock_create:
-        mock_create.return_value = mock_response
-
-        with pytest.raises(LLMValidationError, match="did not return function call"):
-            await openai_client.generate_json(
-                prompt="Test",
-                schema={"type": "object"},
-            )
 
 
 @pytest.mark.asyncio

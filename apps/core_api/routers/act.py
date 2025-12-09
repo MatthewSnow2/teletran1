@@ -25,7 +25,7 @@ from apps.core_api.deps import get_current_user, get_redis, get_trace_id, get_se
 from apps.core_api.auth import User
 from chad_obs.logging import get_logger
 from chad_agents.graphs.graph_langgraph import execute_agent_loop
-from chad_llm import LLMRouter
+from chad_llm import AnthropicClient
 from chad_tools.registry import ToolRegistry
 from chad_memory.stores import RedisStore
 from chad_agents.policies.policy_guard import PolicyGuard, ActRequest as PolicyActRequest, User as PolicyUser
@@ -393,10 +393,10 @@ async def execute_action(
     # STEP 5: LangGraph Execution
     # ========================================================================
     try:
-        # Initialize dependencies
-        llm_router = LLMRouter()  # Creates OpenAI + Anthropic clients from env
+        # Initialize Claude client
+        claude = AnthropicClient()
 
-        # Get tool registry from app state (initialized at startup with Notion + n8n tools)
+        # Get tool registry from app state (initialized at startup with Notion tools)
         tool_registry = request.app.state.tool_registry
 
         # Add actor to context
@@ -410,7 +410,7 @@ async def execute_action(
             autonomy_level=autonomy_level,
             dry_run=request_body.dry_run,
             max_steps=request_body.max_steps,
-            llm_router=llm_router,
+            claude=claude,
             tool_registry=tool_registry,
         )
 

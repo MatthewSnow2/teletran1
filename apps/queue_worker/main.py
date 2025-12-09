@@ -26,7 +26,7 @@ from chad_obs.logging import get_logger
 from chad_memory.stores import PostgresStore
 from chad_memory.database import get_session_factory
 from chad_agents.graphs.graph_langgraph import execute_agent_loop
-from chad_llm import LLMRouter
+from chad_llm import AnthropicClient
 from chad_tools.registry import ToolRegistry
 from chad_notifications.webhooks import WebhookNotifier
 
@@ -57,7 +57,7 @@ class QueueWorker:
         # Initialize components
         self.redis: aioredis.Redis | None = None
         self.postgres_store: PostgresStore | None = None
-        self.llm_router: LLMRouter | None = None
+        self.claude: AnthropicClient | None = None
         self.tool_registry: ToolRegistry | None = None
         self.webhook_notifier: WebhookNotifier | None = None
 
@@ -84,12 +84,12 @@ class QueueWorker:
         session_factory = get_session_factory(self.db_url)
         self.postgres_store = PostgresStore(session_factory)
 
-        # Initialize LLM router
-        self.llm_router = LLMRouter()
+        # Initialize Claude client
+        self.claude = AnthropicClient()
 
         # Initialize tool registry
         self.tool_registry = ToolRegistry()
-        # TODO: Register tools (Notion, n8n, GitHub, etc.)
+        # TODO: Register Notion tools
         # For now, basic registry is sufficient
 
         # Initialize webhook notifier
@@ -332,7 +332,7 @@ class QueueWorker:
             autonomy_level=job["autonomy_level"],
             dry_run=job["dry_run"],
             max_steps=job["max_steps"],
-            llm_router=self.llm_router,
+            claude=self.claude,
             tool_registry=self.tool_registry,
         )
 

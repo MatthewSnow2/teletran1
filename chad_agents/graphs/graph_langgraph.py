@@ -1,11 +1,11 @@
 """LangGraph State Machine: Initialize → Plan → Execute → Reflect → Finalize
 
-Implements autonomous agent workflow with dual-LLM routing:
-- Claude: Planning and reflection (technical reasoning)
-- ChatGPT-5: User notifications and summaries
+Implements autonomous agent workflow with Claude-only LLM:
+- Planning and execution reasoning
+- Reflection and analysis
+- User notifications and summaries
 """
 
-import asyncio
 import json
 import re
 from datetime import datetime
@@ -13,7 +13,7 @@ from typing import Any, Literal, TypedDict
 
 from langgraph.graph import StateGraph, END
 
-from chad_llm import LLMRouter, TaskType
+from chad_llm import AnthropicClient
 from chad_tools.registry import ToolRegistry
 
 
@@ -82,12 +82,12 @@ async def initialize_node(state: AgentState) -> AgentState:
     return state
 
 
-async def plan_node(state: AgentState, llm_router: LLMRouter) -> AgentState:
+async def plan_node(state: AgentState, claude: AnthropicClient) -> AgentState:
     """Generate execution plan using Claude.
 
     Args:
         state: Current agent state
-        llm_router: LLM router for dual-LLM access
+        claude: Claude client for LLM access
 
     Returns:
         Updated state with plan
@@ -188,10 +188,9 @@ Output as JSON with this structure:
 
     # Call Claude for planning
     try:
-        response, model = await llm_router.generate_json(
+        response = await claude.generate_json(
             prompt=prompt,
             schema=plan_schema,
-            task_type=TaskType.PLANNING,
             temperature=0.3,  # Lower temp for deterministic planning
         )
 
@@ -199,7 +198,7 @@ Output as JSON with this structure:
         state["llm_calls"] += 1
         state["messages"].append({
             "role": "assistant",
-            "content": f"[{model}] Plan created with {len(response['steps'])} steps. Reasoning: {response['reasoning']}"
+            "content": f"[{claude.model_name}] Plan created with {len(response['steps'])} steps. Reasoning: {response['reasoning']}"
         })
 
     except Exception as e:
@@ -305,12 +304,12 @@ async def execute_tool_node(
     return state
 
 
-async def reflect_node(state: AgentState, llm_router: LLMRouter) -> AgentState:
+async def reflect_node(state: AgentState, claude: AnthropicClient) -> AgentState:
     """Evaluate progress using Claude.
 
     Args:
         state: Current agent state
-        llm_router: LLM router for dual-LLM access
+        claude: Claude client for LLM access
 
     Returns:
         Updated state with reflection results
@@ -357,17 +356,16 @@ Output as JSON:
     }
 
     try:
-        reflection, model = await llm_router.generate_json(
+        reflection = await claude.generate_json(
             prompt=prompt,
             schema=reflection_schema,
-            task_type=TaskType.REFLECTION,
             temperature=0.4,
         )
 
         state["llm_calls"] += 1
         state["messages"].append({
             "role": "assistant",
-            "content": f"[{model}] Reflection: {reflection['reasoning']}"
+            "content": f"[{claude.model_name}] Reflection: {reflection['reasoning']}"
         })
 
         # Store reflection in working memory
@@ -383,12 +381,12 @@ Output as JSON:
     return state
 
 
-async def finalize_node(state: AgentState, llm_router: LLMRouter) -> AgentState:
+async def finalize_node(state: AgentState, claude: AnthropicClient) -> AgentState:
     """Wrap up execution and notify user.
 
     Args:
         state: Current agent state
-        llm_router: LLM router for dual-LLM access
+        claude: Claude client for LLM access
 
     Returns:
         Final state with user notification
@@ -404,7 +402,7 @@ async def finalize_node(state: AgentState, llm_router: LLMRouter) -> AgentState:
     else:
         state["status"] = "completed"  # Partial completion
 
-    # Generate user-friendly notification with ChatGPT-5
+    # Generate user-friendly notification with Claude
     prompt = f"""
 Generate a friendly notification message for this workflow result:
 
@@ -422,9 +420,8 @@ Include links to any artifacts created.
 """
 
     try:
-        notification, model = await llm_router.generate(
+        notification = await claude.generate(
             prompt=prompt,
-            task_type=TaskType.USER_RESPONSE,
             temperature=0.7,
         )
 
@@ -444,11 +441,11 @@ Include links to any artifacts created.
 
         state["messages"].append({
             "role": "assistant",
-            "content": f"[{model}] {notification}"
+            "content": f"[{claude.model_name}] {notification}"
         })
 
     except Exception as e:
-        # Fallback notification if ChatGPT fails
+        # Fallback notification if Claude fails
         state["final_result"] = {
             "run_id": state["run_id"],
             "status": state["status"],
@@ -518,13 +515,13 @@ def decide_after_reflection(state: AgentState) -> str:
 
 
 def create_knowledge_organization_graph(
-    llm_router: LLMRouter,
+    claude: AnthropicClient,
     tool_registry: ToolRegistry,
 ) -> StateGraph:
     """Create LangGraph for knowledge organization workflow.
 
     Args:
-        llm_router: Dual-LLM router
+        claude: Claude client for all LLM tasks
         tool_registry: Tool registry with Notion adapters
 
     Returns:
@@ -532,16 +529,16 @@ def create_knowledge_organization_graph(
     """
     # Create async wrapper functions (Python doesn't support async lambda)
     async def plan_wrapper(state: AgentState) -> AgentState:
-        return await plan_node(state, llm_router)
+        return await plan_node(state, claude)
 
     async def execute_tool_wrapper(state: AgentState) -> AgentState:
         return await execute_tool_node(state, tool_registry)
 
     async def reflect_wrapper(state: AgentState) -> AgentState:
-        return await reflect_node(state, llm_router)
+        return await reflect_node(state, claude)
 
     async def finalize_wrapper(state: AgentState) -> AgentState:
-        return await finalize_node(state, llm_router)
+        return await finalize_node(state, claude)
 
     graph = StateGraph(AgentState)
 
@@ -599,7 +596,7 @@ async def execute_agent_loop(
     autonomy_level: str,
     dry_run: bool,
     max_steps: int,
-    llm_router: LLMRouter,
+    claude: AnthropicClient,
     tool_registry: ToolRegistry,
 ) -> dict:
     """Execute LangGraph agent loop.
@@ -611,7 +608,7 @@ async def execute_agent_loop(
         autonomy_level: L0, L1, L2, or L3
         dry_run: Whether to run in dry-run mode
         max_steps: Maximum steps to execute
-        llm_router: Dual-LLM router
+        claude: Claude client for all LLM tasks
         tool_registry: Tool registry
 
     Returns:
@@ -638,7 +635,7 @@ async def execute_agent_loop(
     }
 
     # Create graph
-    graph = create_knowledge_organization_graph(llm_router, tool_registry)
+    graph = create_knowledge_organization_graph(claude, tool_registry)
 
     # Execute graph
     try:

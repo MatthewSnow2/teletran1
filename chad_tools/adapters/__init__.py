@@ -1,8 +1,10 @@
-"""HTTP Adapters (upgradeable to MCP).
+"""Tool Adapters.
 
-Note: HTTP adapters today; upgradeable to MCP servers later.
+Available adapters:
+- notion: Direct Python adapter for Notion (knowledge base, tracking)
 
-Deliverable #3: Adapter stubs with README ✅
+Other tools (GitHub, Google, Slack) will be available via MCP
+once MCP deployment is configured.
 """
 
-__all__ = ["server"]
+__all__ = ["notion"]

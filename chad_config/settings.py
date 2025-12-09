@@ -138,23 +138,19 @@ class Settings(BaseSettings):
     LOG_FILE: str = Field(default="")
 
     # ========================================================================
-    # ADAPTERS
+    # NOTION (Direct Python Adapter)
     # ========================================================================
-    ADAPTER_NOTION_URL: str = Field(default="http://localhost:8001")
-    ADAPTER_GOOGLE_URL: str = Field(default="http://localhost:8002")
-    ADAPTER_GITHUB_URL: str = Field(default="http://localhost:8003")
-    ADAPTER_OUTLOOK_URL: str = Field(default="http://localhost:8004")
-    ADAPTER_SUPABASE_URL: str = Field(default="http://localhost:8005")
+    NOTION_API_KEY: str = Field(default="", description="Notion API key for knowledge base integration")
 
-    # Adapter credentials (encrypt in production!)
-    NOTION_API_KEY: str = Field(default="")
-    GOOGLE_SERVICE_ACCOUNT_JSON: str = Field(default="")
-    GOOGLE_CREDENTIALS_PATH: str | None = Field(default=None)
-    GITHUB_TOKEN: str = Field(default="")
-    SLACK_BOT_TOKEN: str = Field(default="")
-    OUTLOOK_CLIENT_ID: str = Field(default="")
-    OUTLOOK_CLIENT_SECRET: str = Field(default="")
-    SUPABASE_ADMIN_KEY: str = Field(default="")
+    # ========================================================================
+    # MCP (Model Context Protocol) - Future Integration
+    # ========================================================================
+    # MCP servers will provide tools for GitHub, Google, Slack, etc.
+    # Configure these when MCP deployment approach is determined.
+    MCP_ENABLED: bool = Field(default=False, description="Enable MCP tool integration")
+    # MCP_GITHUB_SERVER_URL: str = Field(default="")
+    # MCP_GOOGLE_SERVER_URL: str = Field(default="")
+    # MCP_SLACK_SERVER_URL: str = Field(default="")
 
     # ========================================================================
     # DEPLOYMENT

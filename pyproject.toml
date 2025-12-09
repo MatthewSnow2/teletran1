@@ -39,8 +39,7 @@ dependencies = [
     # Notion SDK
     "notion-client>=2.2.1",
 
-    # LLM Providers
-    "openai>=1.10.0",
+    # LLM Provider (Claude-only)
     "anthropic>=0.18.0",
 
     # Observability (Minimal Instrumentation)
